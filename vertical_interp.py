@@ -111,6 +111,8 @@ def get_zz_2d(
         pressure_global : np.ndarray,
         pressure_target : np.ndarray,
         type            : str           = None,
+        iz_float        : bool          = False,
+        fun_pre2ling    : function      = None,
 ) -> np.ndarray:
     
     """
@@ -123,6 +125,7 @@ def get_zz_2d(
     """
 
     if type is None: type = "level" # 如果没有给定计算类型, 则默认输入的是level
+    if fun_pre2ling is None: fun_pre2ling = lambda data: np.log(data)
 
     if type.lower() in ["level", "levels"]:
         iz = np.argmin(pressure_global > pressure_target, axis=0) - 1
@@ -130,6 +133,33 @@ def get_zz_2d(
         iz[pressure_global[-1]>pressure_target] = -1 # 比全球最顶层气压还低的取-1
         # iz[iz<0] = 0 # 如果模式最底层比全球结果更低(气压更高), 则取最底层
     elif type.lower() in ["layer", "layers"]:
-        iz = np.argmin(np.abs(np.log(pressure_global/pressure_target)), axis=0)
+        iz = np.argmin(np.abs(fun_pre2ling(pressure_global) - 
+                              fun_pre2ling(pressure_target)), axis=0)
+    
+    if iz_float:
+        jj, ii = np.meshgrid(range(pressure_global.shape[1]), 
+                             range(pressure_global.shape[2]), indexing="ij")
+        if type.lower() in ["level", "levels"]:
+            # 计算所对应层的压力差, 并根据模式的气压判断其相对位置
+            pre_bot = fun_pre2ling(pressure_global[iz, jj, ii]) # 变换当前层底层压力
+            pre_upp = fun_pre2ling(pressure_global[iz+1, jj, ii]) # 变换当前层顶层压力
+            dp_global = pre_bot - pre_upp # 计算当前层压力差
+            dp_wg = fun_pre2ling(pressure_target) - pre_bot # 计算与区域模式压力差
+            iz += dp_wg/dp_global # 获取层内垂直位置
+        elif type.lower() in ["layer", "layers"]:
+            pre_mid = fun_pre2ling(pressure_global[iz, jj, ii]) # 所在层气压
+            iz_bot = iz - 1 # 获取所在层下一层id
+            iz_bot[iz_bot==-1] = 0 # 对于下一层id为-1的, 将其赋值为0
+            iz_upp = iz + 1 # 获取所在层上一层id
+            iz_upp[(iz_upp==0)|(iz_upp==pressure_global.shape[0])] = -1 # 将模式顶层的上一层设置为模式顶层
+            pre_bot = fun_pre2ling(pressure_global[iz_bot, jj, ii]) # 获取下一层气压
+            pre_upp = fun_pre2ling(pressure_global[iz_upp, jj, ii]) # 获取上一层气压
+            pre_mid = fun_pre2ling(pressure_global[iz, jj, ii]) # 获取中间层气压
+            pre_wrf = fun_pre2ling(pressure_target) # 获取区域模式气压
+            dp_g_upp = pre_mid - pre_upp # 计算上层气压差
+            dp_g_bot = pre_bot - pre_mid # 计算下层气压差
+            # 判断区域模式气压与中间层气压大小, 对于模式气压更高的(处于中间层下方)
+            #   使用下层的气压差, 否则使用上层的气压差, 然后将其加到iz上即可
+            iz += np.where(pre_wrf>pre_mid, (pre_mid-pre_wrf)/dp_g_bot, (pre_mid-pre_wrf)/dp_g_upp) + 0.5
 
     return iz
