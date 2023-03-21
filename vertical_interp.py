@@ -231,13 +231,14 @@ def get_it(
         timestamp   : np.datetime64 = np.datetime64(0, "s"),
         start_t     : int           = None,
         delta_t     : int           = None,
-) -> tuple:
+) -> dict:
     """
     主要用于找到对应时间点两端最近的时段, 用于后续的文件指定, 要求输入的时间为
         UTC时间, 默认的针对CarbonTracker写的, 其他格式的数据需要给定每天的开始
         时间和间隔时间.
     更新记录:
         2023-03-21 19:21:34 Sola 编写源代码及测试
+        2023-03-21 21:18:23 Sola 考虑到可能输入并不是datetime64类型, 所以一并输出
     """
 
     # 初始化时间设定, 并将其转化为整数, 主要是 datetime64 不支持浮点数运算
@@ -262,4 +263,6 @@ def get_it(
     else:
         print(f"[ INFO ] {file_time_early=}")
         print(f"[ INFO ] {file_time_later=}")
-    return file_time_early, file_time_later
+    
+    result = {"before":file_time_early, "middle":file_time, "after":file_time_later}
+    return result
