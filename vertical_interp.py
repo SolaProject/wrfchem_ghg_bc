@@ -1,5 +1,6 @@
 from .lib import compute_eta, compute_vcoord_1d_coeffs, pressure_vcorrd_3d
 import numpy as np
+import sys
 
 
 def get_pressure_vcorrd_3d(
@@ -50,21 +51,17 @@ def get_pressure_vcorrd_3d(
     return pressure_3d
 
 
-def interp_3d(
+def interp_3d_input_check(
         data            : np.ndarray,
         pressure_global : np.ndarray,
-        pressure_target : np.ndarray,
         type            : str           = None, # level or layer
-) -> np.ndarray:
+) -> str:
     """
-    主要就是将三维的数据根据气压场插值到对应的高度, 要求各网格在水平方向上经纬度
-        是一致的, 仅存在垂直方向上气压的不同. 具体的插值方式会依据是layer还是level
-        而变.
+    用于确认输入的数据是否符合要求, 如果输入的是空值, 则返回计算结果
     更新记录:
-        2023-03-16 19:58:09 Sola 编写源代码
-        2023-03-16 20:51:51 Sola 加入对全球的气压场的判断
+        2023-03-20 22:38:10 Sola 编写源代码
     """
-    
+
     if data.shape[0] == pressure_global.shape[0] - 1: # 判断全球气压场的类型
         type_temp = "level" # 如果垂直方向比标量场多一个, 那么认为是 level 类型
     elif data.shape[0] == pressure_global.shape[0]:
@@ -80,9 +77,68 @@ def interp_3d(
               f"it is {type_temp}. Will use {type}, please check it")
     print(f"INPUT: {type}; PROGRAM: {type_temp}") # 打印提示信息
 
+    return type
+
+
+def interp_3d_nearset(
+        data            : np.ndarray,
+        pressure_global : np.ndarray,
+        pressure_target : np.ndarray,
+        type            : str           = None, # level or layer
+) -> np.ndarray:
+    """
+    主要就是将三维的数据根据气压场插值到对应的高度, 要求各网格在水平方向上经纬度
+        是一致的, 仅存在垂直方向上气压的不同. 具体的插值方式会依据是layer还是level
+        而变.
+    更新记录:
+        2023-03-16 19:58:09 Sola 编写源代码
+        2023-03-16 20:51:51 Sola 加入对全球的气压场的判断
+    """
+    
+    type = interp_3d_input_check(data, pressure_global, type=type)
+
     kk, jj, ii = get_zz_3d(pressure_global=pressure_global, 
                            pressure_target=pressure_target, type=type)
+    
     result = data[kk, jj, ii] # 提取对应的结果
+
+    return result
+
+
+def interp_3d_linalg(
+        data            : np.ndarray,
+        pressure_global : np.ndarray,
+        pressure_target : np.ndarray,
+        type            : str           = None, # level or layer
+        fun_pre2ling                    = None,
+        fun_pre2ling_inv                = None,
+) -> np.ndarray:
+    """
+    主要就是将三维的数据根据气压场插值到对应的高度, 要求各网格在水平方向上经纬度
+        是一致的, 仅存在垂直方向上气压的不同. 具体的插值方式会依据是layer还是level
+        而变.
+    更新记录:
+        2023-03-16 19:58:09 Sola 编写源代码
+        2023-03-16 20:51:51 Sola 加入对全球的气压场的判断
+        2023-03-20 22:34:30 Sola 增加了一个垂直方向线性插值的版本
+    """
+    
+    type = interp_3d_input_check(data, pressure_global, type=type)
+    if fun_pre2ling is None:
+        fun_pre2ling = np.log
+        fun_pre2ling_inv = np.exp
+
+    if type.lower() in ["level", "levels"]:
+        pressure_global_layer = fun_pre2ling_inv((fun_pre2ling(pressure_global[:-1]) + 
+                                 fun_pre2ling(pressure_global[1:]))/2)
+        type = "layer"
+
+    kk, jj, ii = get_zz_3d(pressure_global=pressure_global_layer, 
+                           pressure_target=pressure_target, type=type,
+                           iz_float=True, fun_pre2ling=fun_pre2ling)
+    
+    result = data[np.ceil(kk).astype(int), jj, ii]*kk%1 +\
+        data[np.floor(kk).astype(int), jj, ii]*(1-kk%1) # 提取对应的结果
 
     return result
 
@@ -91,19 +147,22 @@ def get_zz_3d(
         pressure_global : np.ndarray,
         pressure_target : np.ndarray,
         type            : str           = None, # level or layer
+        iz_float        : bool          = None,
+        fun_pre2ling                    = None,
 ):
     """
     从3d场插值的代码中单独将计算垂直位置的代码拆出来, 以方便重复计算
     可以计算区域模式每个网格在全球网格上的对应位置
     更新记录:
         2023-03-16 21:00:26 Sola 编写源代码
+        2023-03-20 22:48:36 Sola 加入垂直线性插值的部分
     """
     nz, ny, nx = pressure_target.shape # 获取输出数据的维度
     kk, jj, ii = np.meshgrid(range(nz), range(ny), range(nx), indexing="ij")
     for k in range(nz): # 获取每一层的位置
         kk[k] = get_zz_2d(pressure_global=pressure_global,
                        pressure_target=pressure_target[k],
-                       type=type)
+                       type=type, iz_float=iz_float, fun_pre2ling=fun_pre2ling)
     return kk, jj, ii
 
 
@@ -111,8 +170,8 @@ def get_zz_2d(
         pressure_global : np.ndarray,
         pressure_target : np.ndarray,
         type            : str           = None,
-        iz_float        : bool          = False,
-        fun_pre2ling    : function      = None,
+        iz_float        : bool          = None,
+        fun_pre2ling                    = None,
 ) -> np.ndarray:
     
     """
@@ -125,7 +184,8 @@ def get_zz_2d(
     """
 
     if type is None: type = "level" # 如果没有给定计算类型, 则默认输入的是level
-    if fun_pre2ling is None: fun_pre2ling = lambda data: np.log(data)
+    if fun_pre2ling is None: fun_pre2ling = np.log
+    if iz_float is None: iz_float = False
 
     if type.lower() in ["level", "levels"]:
         iz = np.argmin(pressure_global > pressure_target, axis=0) - 1
@@ -145,6 +205,7 @@ def get_zz_2d(
             pre_upp = fun_pre2ling(pressure_global[iz+1, jj, ii]) # 变换当前层顶层压力
             dp_global = pre_bot - pre_upp # 计算当前层压力差
             dp_wg = fun_pre2ling(pressure_target) - pre_bot # 计算与区域模式压力差
+            iz = iz.astype(float)
             iz += dp_wg/dp_global # 获取层内垂直位置
         elif type.lower() in ["layer", "layers"]:
             pre_mid = fun_pre2ling(pressure_global[iz, jj, ii]) # 所在层气压
@@ -160,6 +221,45 @@ def get_zz_2d(
             dp_g_bot = pre_bot - pre_mid # 计算下层气压差
             # 判断区域模式气压与中间层气压大小, 对于模式气压更高的(处于中间层下方)
             #   使用下层的气压差, 否则使用上层的气压差, 然后将其加到iz上即可
+            iz = iz.astype(float)
             iz += np.where(pre_wrf>pre_mid, (pre_mid-pre_wrf)/dp_g_bot, (pre_mid-pre_wrf)/dp_g_upp) + 0.5
 
     return iz
+
+
+def get_it(
+        timestamp   : np.datetime64 = np.datetime64(0, "s"),
+        start_t     : int           = None,
+        delta_t     : int           = None,
+) -> tuple:
+    """
+    主要用于找到对应时间点两端最近的时段, 用于后续的文件指定, 要求输入的时间为
+        UTC时间, 默认的针对CarbonTracker写的, 其他格式的数据需要给定每天的开始
+        时间和间隔时间.
+    更新记录:
+        2023-03-21 19:21:34 Sola 编写源代码及测试
+    """
+
+    # 初始化时间设定, 并将其转化为整数, 主要是 datetime64 不支持浮点数运算
+    start_t = int(3600*1.5) if start_t is None else int(start_t)
+    delta_t = int(3600*3.0) if delta_t is None else int(delta_t)
+    # 打印提示信息
+    print(f"[ INFO ] {start_t=}, {delta_t=}")
+    print(f"[ INFO ] {hasattr(timestamp, 'dtype')=}")
+
+    # 转化时间戳为 datetime64 格式, 可以接受 datetime64, int, str 和 datetime
+    file_time = np.array(timestamp, "datetime64[s]")
+
+    # 计算开始和结束时间
+    file_time_early = (file_time - start_t).astype(int)//delta_t*delta_t + start_t
+    file_time_early = np.array(file_time_early.astype(int), "datetime64[s]")
+    file_time_later = file_time_early + delta_t
+
+    # 显示运算结果
+    if file_time.ndim >= 1:
+        print(f"[ INFO ] {file_time_early.ravel()[0]=}")
+        print(f"[ INFO ] {file_time_later.ravel()[0]=}")
+    else:
+        print(f"[ INFO ] {file_time_early=}")
+        print(f"[ INFO ] {file_time_later=}")
+    return file_time_early, file_time_later
