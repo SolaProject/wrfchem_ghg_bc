@@ -259,9 +259,11 @@ def get_it(
     # 显示运算结果
     if file_time.ndim >= 1:
         print(f"[ INFO ] {file_time_early.ravel()[0]=}")
+        print(f"[ INFO ] {file_time.ravel()[0]=}")
         print(f"[ INFO ] {file_time_later.ravel()[0]=}")
     else:
         print(f"[ INFO ] {file_time_early=}")
+        print(f"[ INFO ] {file_time=}")
         print(f"[ INFO ] {file_time_later=}")
     
     result = {"before":file_time_early, "middle":file_time, "after":file_time_later}

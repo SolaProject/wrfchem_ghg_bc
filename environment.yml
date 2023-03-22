@@ -1,0 +1,16 @@
+# To use:
+#
+#   $ conda env create -f environment.yml
+#   $ conda activate wrfchem_ghg_bc
+#
+name: wrfchem_ghg_bc
+channels:
+  - conda-forge
+  - solaproject
+dependencies:
+  - python=3.9
+  - numpy
+  - cartopy
+  - netCDF4
+  - pandas
+  - model_info_2d
