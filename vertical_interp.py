@@ -132,6 +132,8 @@ def interp_3d_linalg(
         pressure_global_layer = fun_pre2ling_inv((fun_pre2ling(pressure_global[:-1]) + 
                                  fun_pre2ling(pressure_global[1:]))/2)
         type = "layer"
+    else:
+        pressure_global_layer = pressure_global
 
     kk, jj, ii = get_zz_3d(pressure_global=pressure_global_layer, 
                            pressure_target=pressure_target, type=type,
